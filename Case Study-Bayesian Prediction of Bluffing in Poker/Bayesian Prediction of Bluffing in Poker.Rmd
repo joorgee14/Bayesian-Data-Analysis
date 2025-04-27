@@ -1,0 +1,263 @@
+---
+title: "Case Study: Bayesian Prediction of Bluffing in Poker"
+author: "Jorge Chamorro Pedrosa"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+# Objective
+
+We illustrate how to use Bayesian inference and prediction to estimate the probability of bluffing behavior in Poker games.
+
+We model bluffing as a Bernoulli random variable, and update our beliefs based on observed hands using a conjugate Beta prior.
+
+Specifically, we aim to answer:
+
+$$
+Pr(\text{Bluff} \mid \text{Observed hands})
+$$
+
+# Data
+
+Suppose we observe a professional poker player's behavior over 100 hands and record whether they bluffed ($1$) or did not bluff ($0$) in each hand.
+
+For this case study, we simulate the data:
+
+```{r setup, include=TRUE}
+set.seed(123)
+
+# Simulate 100 hands: 1 = bluff, 0 = no bluff
+n_hands <- 100
+true_bluff_prob <- 0.2
+hands <- rbinom(n_hands, size = 1, prob = true_bluff_prob)
+
+# Summary of the data
+table(hands)
+prop_bluff <- mean(hands)
+prop_bluff
+```
+
+# Bayesian Bernoulli Model
+
+We model each hand as:
+
+$$
+X_i \sim \text{Bernoulli}(\theta),
+$$
+
+where $\theta$ is the probability of bluffing.
+
+We assume a **Beta prior** for $\theta$:
+
+$$
+\theta \sim \text{Beta}(\alpha, \beta).
+$$
+
+First, we select a **informative prior**: $\text{Beta}(10,90)$.
+
+```{r prior}
+# Prior parameters
+alpha <- 10
+beta <- 90
+```
+
+Given observations $\{x_1, \dots, x_n\}$, the posterior distribution is:
+
+$$
+\theta \mid \text{data} \sim \text{Beta}\left(\alpha + \sum_{i=1}^n x_i, \, \beta + n - \sum_{i=1}^n x_i\right).
+$$
+
+Let's compute the posterior parameters:
+
+```{r posterior-parameters}
+sum_bluffs <- sum(hands)
+n <- length(hands)
+
+# Posterior parameters
+alpha_post <- alpha + sum_bluffs
+beta_post <- beta + n - sum_bluffs
+
+c(alpha_post, beta_post)
+```
+
+Thus, our updated belief about $\theta$ follows a $\text{Beta}(\alpha_{\text{post}}, \beta_{\text{post}})$ distribution.
+
+# Prior vs Posterior Visualization
+
+Let's visualize the prior and posterior distributions to see how the data updates our beliefs.
+
+```{r prior-posterior-plot, echo=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+# Create a grid of theta values
+theta_grid <- seq(0, 1, length.out = 1000)
+
+# Compute densities
+prior_density <- dbeta(theta_grid, alpha, beta)
+posterior_density <- dbeta(theta_grid, alpha_post, beta_post)
+
+# Combine into a data frame
+density_data <- data.frame(
+  theta = theta_grid,
+  Prior = prior_density,
+  Posterior = posterior_density
+)
+
+# Plot
+ggplot(density_data, aes(x = theta)) +
+  geom_line(aes(y = Prior), color = "blue", size = 1.2, linetype = "dashed") +
+  geom_line(aes(y = Posterior), color = "red", size = 1.2) +
+  labs(title = "Prior vs Posterior Distributions",
+       y = "Density",
+       x = expression(theta)) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Predictive Analysis
+
+We want to predict the probability that in the next hand, the opponent bluffs.
+
+Given our Beta posterior $\text{Beta}(\alpha_{\text{post}}, \beta_{\text{post}})$,\
+the posterior predictive mean is:
+
+$$
+\mathbb{E}[\theta \mid \text{data}] = \frac{\alpha_{\text{post}}}{\alpha_{\text{post}} + \beta_{\text{post}}}
+$$
+
+Let's compute it:
+
+```{r}
+# Predictive mean
+predictive_mean <- alpha_post / (alpha_post + beta_post)
+predictive_mean
+```
+
+Thus, the estimated probability that the opponent bluffs in the next hand is approximately 0.14.
+
+### Simulating Future Hands
+
+We now simulate future hands based on our posterior belief:
+
+-   First, draw $\theta$ from the posterior $\text{Beta}(\alpha_{\text{post}}, \beta_{\text{post}})$,
+-   Then simulate new hands using this $\theta$.
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Number of simulations
+M <- 1000
+
+# Sample theta from posterior
+theta_samples <- rbeta(M, alpha_post, beta_post)
+
+# Simulate future hands: 1 = bluff, 0 = no bluff
+future_hands <- rbinom(M, size = 1, prob = theta_samples)
+
+# Proportion of bluffs
+mean(future_hands)
+```
+
+### Analysis and Visualization of Future Hands
+
+Let's analyze the outcomes of the simulated future hands.
+
+```{r}
+# Plot histogram of future hand outcomes
+library(ggplot2)
+
+# Create a data frame
+future_data <- data.frame(Outcome = future_hands)
+
+# Plot
+ggplot(future_data, aes(x = factor(Outcome))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(x = "Outcome (0 = No Bluff, 1 = Bluff)",
+       y = "Count",
+       title = "Simulated Future Hands Based on Posterior") +
+  theme_minimal()
+```
+
+We can also summarize the results:
+
+```{r}
+
+# Number of bluffs and no bluffs
+table(future_hands)
+```
+
+This gives us an empirical estimate of how often we expect the opponent to bluff in future hands.
+
+### Credible Interval for $\theta$
+
+We can compute a 95% Bayesian credible interval for the bluffing probability $\theta$ based on the posterior distribution.
+
+```{r}
+# 95% credible interval
+quantile(rbeta(10000, alpha_post, beta_post), c(0.025, 0.975))
+```
+
+Thus, there is a 95% probability that the true bluffing probability $\theta$ lies within this interval according to our posterior belief.
+
+### Predicting Bluffing in Future Hands
+
+Suppose we want to predict how many times the opponent will bluff in the next 5 hands.
+
+Since the bluffing probability $\theta$ follows a Beta posterior, the number of bluffs in 5 hands follows a **Beta-Binomial** distribution.
+
+We can simulate this:
+
+```{r}
+# Simulate future bluff counts
+M <- 10000
+theta_samples <- rbeta(M, alpha_post, beta_post)
+future_bluffs <- rbinom(M, size = 5, prob = theta_samples)
+
+# Plot the distribution
+library(ggplot2)
+
+future_bluffs_df <- data.frame(Bluffs = future_bluffs)
+
+ggplot(future_bluffs_df, aes(x = Bluffs)) +
+  geom_bar(fill = "lightgreen", color = "black") +
+  labs(x = "Number of Bluffs in 5 Future Hands",
+       y = "Count",
+       title = "Predictive Distribution of Future Bluffs") +
+  theme_minimal()
+```
+
+We can also compute probabilities like:
+
+-   Probability opponent bluffs at least 3 out of 5 hands:
+
+```{r}
+mean(future_bluffs >= 3)
+```
+
+### Conclusion
+
+In this case study, we used Bayesian data analysis to model an opponent's bluffing probability in poker.
+
+Starting from a prior belief (Beta(10, 90)), we updated our knowledge based on observed hands (18 bluffs out of 100).\
+We computed the posterior distribution, made predictions about future hands, and built credible intervals to quantify uncertainty.
+
+-   The Bayesian approach **naturally balances** prior beliefs with observed data.
+-   In our case, the data had strong influence because we observed many hands.
+-   The final estimated bluff probability shifted slightly, showing how evidence dominates when enough data is available.
+
+------------------------------------------------------------------------
+
+### Real-World Use in Poker
+
+In real poker scenarios, such analysis can be extremely useful:
+
+-   **Opponent Modeling**: Continuously update your belief about how often a player bluffs.
+
+-   **Decision Making**: If you believe an opponent bluffs often, you might call more often. If rarely, fold more often.
+
+-   **Risk Management**: Quantifying uncertainty helps make **more robust** decisions under pressure.
+
+Thus, Bayesian thinking gives players a huge edge: decisions are **evidence-based**, **adaptive**, and **mathematically sound**.
